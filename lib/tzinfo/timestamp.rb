@@ -78,7 +78,7 @@ module TZInfo
       end
 
       # When used without a block, returns a {Timestamp} representation of a
-      # given `Time`, `DateTime` or {Timestamp}.
+      # given `Time`, `DateTime`, {Timestamp} or `Time::TM`.
       #
       # When called with a block, the {Timestamp} representation of `value` is
       # passed to the block. The block must then return a {Timestamp}, which
@@ -91,7 +91,7 @@ module TZInfo
       # as though it were UTC (the {Timestamp} representation will have a
       # {utc_offset} of 0 and {utc?} will return `true`).
       #
-      # @param value [Object] a `Time`, `DateTime` or {Timestamp}.
+      # @param value [Object] a `Time`, `DateTime`, {Timestamp} or `Time::TM`.
       # @param offset [Symbol] either `:preserve` to preserve the offset of
       #   `value`, `:ignore` to ignore the offset of `value` and create a
       #   {Timestamp} with an unspecified offset, or `:treat_as_utc` to treat
@@ -131,7 +131,8 @@ module TZInfo
           when Timestamp
             for_timestamp(value, ignore_offset, target_utc_offset)
           else
-            raise ArgumentError, "#{value.class} values are not supported"
+            raise ArgumentError, "#{value.class} values are not supported" unless is_time_tm?(value)
+            for_time_tm(value, ignore_offset, target_utc_offset)
         end
 
         if block_given?
@@ -143,8 +144,10 @@ module TZInfo
               result.to_time
             when DateTime
               result.to_datetime
-            else # Timestamp
+            when Timestamp
               result
+            else # Time::TM
+              result.to_time_tm
           end
         else
           timestamp
@@ -213,6 +216,22 @@ module TZInfo
         new!(value, sub_second, utc_offset)
       end
 
+      # Creates a {Timestamp} that represents a given `Time::TM`, optionally
+      # ignoring the offset (which, for `Time::TM`, is always UTC).
+      #
+      # @param time_tm [Time::TM] a `Time::TM`.
+      # @param ignore_offset [Boolean] whether to ignore the offset of
+      #   `time_tm`.
+      # @param target_utc_offset [Object] if `ignore_offset` is `true`, the UTC
+      #   offset of the result (`:utc`, `nil` or an `Integer`).
+      # @return [Timestamp] the {Timestamp} representation of `time_tm`.
+      def for_time_tm(time_tm, ignore_offset, target_utc_offset)
+        value = time_tm.to_i
+        sub_second = time_tm.subsec
+        utc_offset = ignore_offset ? target_utc_offset : :utc
+        new!(value, sub_second, utc_offset)
+      end
+
       # Creates a {Timestamp} that represents a given `DateTime`, optionally
       # ignoring the offset.
       #
@@ -266,6 +285,16 @@ module TZInfo
         end
 
         timestamp
+      end
+
+      if defined?(Time::TM) && Time::TM.superclass == Struct
+        def is_time_tm?(value)
+          value.kind_of?(Time::TM)
+        end
+      else
+        def is_time_tm?(value)
+          false
+        end
       end
     end
 
@@ -355,6 +384,21 @@ module TZInfo
       else
         time.utc
       end
+    end
+
+    # Converts this {Timestamp} to a `Time::TM`.
+    #
+    # @return [Time] a `Time::TM` representation of this {Timestamp}.
+    # @raise [NameError] if the `Time::TM` class doesn't exist on the current
+    #   Ruby version.
+    def to_time_tm
+      time = new_time
+
+      # The struct version of Time::TM.from_time doesn't preserve subsec.
+      # The subclass version does.
+      time_tm = Time::TM.from_time(time)
+      time_tm.subsec = time.subsec if time_tm.subsec != time.subsec
+      time_tm
     end
 
     # Converts this {Timestamp} to a `DateTime`.

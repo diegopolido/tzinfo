@@ -275,6 +275,24 @@ class TCTimestamp < Minitest::Test
     assert_equal_with_offset(Time.new(2016,10,13,1,0,Rational(11,10),3600), Timestamp.new(1476316801, Rational(1,10), 3600).to_time)
   end
 
+  if defined?(Time::TM)
+    def test_to_time_tm
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1)), Timestamp.new(1476316801).to_time_tm)
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1,Rational(100_000,1))), Timestamp.new(1476316801, Rational(1,10)).to_time_tm)
+      assert_equal(to_time_tm(Time.new(2016,10,13,0,0,1,0)), Timestamp.new(1476316801, 0, 0).to_time_tm)
+      assert_equal(to_time_tm(Time.new(2016,10,13,0,0,1+Rational(1,10), 0)), Timestamp.new(1476316801, Rational(1,10), 0).to_time_tm)
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1)), Timestamp.new(1476316801, 0, :utc).to_time_tm)
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1,Rational(100_000,1))), Timestamp.new(1476316801, Rational(1,10), :utc).to_time_tm)
+      assert_equal(to_time_tm(Time.new(2016,10,13,1,0,1,3600)), Timestamp.new(1476316801, 0, 3600).to_time_tm)
+      assert_equal(to_time_tm(Time.new(2016,10,13,1,0,Rational(11,10),3600)), Timestamp.new(1476316801, Rational(1,10), 3600).to_time_tm)
+    end
+  else
+    def test_to_time_tm
+      error = assert_raises(NameError) { Timestamp.new(1476316801).to_time_tm }
+      assert_match(/\bTime::TM\b/, error.message)
+    end
+  end
+
   def test_to_datetime
     assert_equal_with_offset(DateTime.new(2016,10,13,0,0,1), Timestamp.new(1476316801).to_datetime)
     assert_equal_with_offset(DateTime.new(2016,10,13,0,0,Rational(11,10)), Timestamp.new(1476316801, Rational(1,10)).to_datetime)
@@ -881,6 +899,54 @@ class TCTimestamp < Minitest::Test
     end
   end
 
+  if defined?(Time::TM) && Time::TM.superclass == Struct
+    def test_for_time_tm_ignore_offset
+      for_test(to_time_tm(Time.utc(2016,10,13,0,0,0)), :ignore) do |t|
+        assert_equal(1476316800, t.value)
+        assert_nil(t.utc_offset)
+        assert_nil(t.utc?)
+      end
+    end
+
+    def test_for_time_tm_treat_offset_as_utc
+      for_test(to_time_tm(Time.utc(2016,10,13,0,0,0)), :treat_as_utc) do |t|
+        assert_equal(1476316800, t.value)
+        assert_equal(0, t.utc_offset)
+        assert_equal(true, t.utc?)
+      end
+    end
+
+    def test_for_time_tm_preserve_offset
+      for_test(to_time_tm(Time.utc(2016,10,13,0,0,0)), :preserve) do |t|
+        assert_equal(1476316800, t.value)
+        assert_equal(0, t.utc_offset)
+        assert_equal(true, t.utc?)
+      end
+    end
+
+    def test_for_time_preserve_offset_by_default
+      for_test(to_time_tm(Time.new(2016,10,13,1,0,0,3600))) do |t|
+        assert_equal(1476316800, t.value)
+        assert_equal(0, t.utc_offset)
+        assert_equal(true, t.utc?)
+      end
+    end
+
+    def test_for_time_tm_zero_sub_second
+      for_test(to_time_tm(Time.utc(2016,10,13,0,0,1))) do |t|
+        assert_equal(1476316801, t.value)
+        assert_equal(0, t.sub_second)
+      end
+    end
+
+    def test_for_time_tm_sub_second
+      for_test(to_time_tm(Time.utc(2016,10,13,0,0,1,Rational(100_000,1)))) do |t|
+        assert_equal(1476316801, t.value)
+        assert_equal(Rational(1,10), t.sub_second)
+      end
+    end
+  end
+
   def test_for_datetime_ignore_offset_utc
     for_test(DateTime.new(2016,10,13,0,0,0), :ignore) do |t|
       assert_equal(1476316800, t.value)
@@ -992,6 +1058,19 @@ class TCTimestamp < Minitest::Test
     assert_equal_with_offset(Time.new(2016,10,13,1,0,Rational(11,10),3600),  Timestamp.for(Time.utc(2016,10,13,0,0,0)) { Timestamp.new(1476316801, Rational(1,10), 3600) })
   end
 
+  if defined?(Time::TM) && Time::TM.superclass == Struct
+    def test_for_block_result_to_time_tm
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1)),                     Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801) })
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1,Rational(100_000,1))), Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801, Rational(1,10)) })
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1)),                     Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801, 0, :utc) })
+      assert_equal(to_time_tm(Time.utc(2016,10,13,0,0,1,Rational(100_000,1))), Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801, Rational(1,10), :utc) })
+      assert_equal(to_time_tm(Time.new(2016,10,13,0,0,1,0)),                   Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801, 0, 0) })
+      assert_equal(to_time_tm(Time.new(2016,10,13,0,0,1+Rational(1,10),0)),    Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801, Rational(1,10), 0) })
+      assert_equal(to_time_tm(Time.new(2016,10,13,1,0,1,3600)),                Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801, 0, 3600) })
+      assert_equal(to_time_tm(Time.new(2016,10,13,1,0,Rational(11,10),3600)),  Timestamp.for(to_time_tm(Time.utc(2016,10,13,0,0,0))) { Timestamp.new(1476316801, Rational(1,10), 3600) })
+    end
+  end
+
   def test_for_block_result_to_datetime
     assert_equal_with_offset(DateTime.new(2016,10,13,0,0,1),                              Timestamp.for(DateTime.new(2016,10,13,0,0,0)) { Timestamp.new(1476316801) })
     assert_equal_with_offset(DateTime.new(2016,10,13,0,0,Rational(11,10)),                Timestamp.for(DateTime.new(2016,10,13,0,0,0)) { Timestamp.new(1476316801, Rational(1,10)) })
@@ -1088,4 +1167,15 @@ class TCTimestamp < Minitest::Test
     error = assert_raises(RangeError) { Timestamp.utc(1476316800, Rational(11, 10)) }
     assert_equal('sub_second must be >= 0 and < 1', error.message)
   end
+
+  private
+
+  def to_time_tm(time)
+    # The struct version of Time::TM.from_time doesn't preserve subsec.
+    # The subclass version does.
+    time_tm = Time::TM.from_time(time)
+    time_tm.subsec = time.subsec if time_tm.subsec != time.subsec
+    time_tm
+  end
+
 end
